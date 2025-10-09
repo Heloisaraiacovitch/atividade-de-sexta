@@ -1,0 +1,53 @@
+import matplotlib.pyplot as plt
+import numpy as np
+import time
+
+#--- matplotlib.pyplot faz graficos
+#--- time controle de tempo
+#--- ajuda a gerar valores simuladores
+
+plt.ion() # ativa atualizacao em tempo real de graficos
+fig, ax = plt.subplots() #cria graficos 
+
+#---Simulacao: dados vindos de outros projetos como (projeto baja)
+# tempo, velocidade e rpm
+
+tempo = []
+velocidade = []
+rpm = []
+#--- lista que vao armazenar todas as medicoes
+#--- linhas vazias para velocidade e rpm
+linha_vel, = ax.plot([], [], label='Velocidade (km/h)')
+linha_rpm, = ax.plot([], [], label= 'RPM')
+ax.set_xlim(0, 60)
+ax.set_ylim(0, 7000)
+ax.set_xlabel('Tempo (s)')
+ax.set_ylabel('Valor')
+ax.set_title('Telemetria em tempo real')
+ax.legend()
+#--- limites de eixo ( 0 a 60 segundos e 0 a 7000 no valor)
+#--legenda e titulo
+with open('telemetria.txt', 'w') as f:
+    f.write('tempo, velocidade, rpm/n')
+    #--- abre arquivo 
+    for t in range(60):
+        vel = 60+20* np.sint(t/5)
+        rot = 3000+1500*np.cost(t/6)
+        #--- programa silumalao de dados, nao sao valores reais
+        #--- tempo em segundos(0 a 59) velocidade entre (40 a 80km) rpm entre (1500 a 4500)
+tempo.append(t)
+velocidade.append(vel)
+rpm.append(rot)
+
+f.write(f'{t}, {vel:.2f}, {rot:.2f}/n')
+f.flush()
+#--- armazena sem fechar programa, armazena dados em listas e escreve linha no arquivos
+linha_vel.set_data(tempo, velocidade)
+linha_rpm.set_data(tempo, rpm)
+ax.set_xlim(max(0, t- 30), t +5)
+plt.pause(0.1)
+#--atualiza graficos, deliza o eixo x e pause
+plt.ioff()
+plt.show()
+print("Dados salvos em telemetria.txt")
+#-- desativa o modo interativo, mostra o grafico e exibe mensagem confirmando o salvamente
