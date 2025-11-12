@@ -1,0 +1,105 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import time
+import random
+import pandas as pd
+
+# Variáveis globais essenciais
+historico_dados = []
+coleta_ativa = False
+
+# --- 1. SIMULADOR (Fonte de Dados) ---
+def gerar_dados_simulados():
+    """Gera dados básicos para a telemetria."""
+    dados = {
+        "velocidade": round(random.uniform(15, 65), 2),
+        "rpm": random.randint(3000, 5000),             
+        "tensao": round(random.uniform(12.0, 14.0), 2),
+        "timestamp": time.strftime("%H:%M:%S")
+    }
+    return dados
+
+# --- 2. SALVAMENTO DE DADOS ---
+def salvar_dados_csv():
+    """Salva o histórico em um arquivo CSV usando Pandas."""
+    if not historico_dados:
+        messagebox.showinfo("Aviso", "Nenhum dado coletado.")
+        return
+        
+    df = pd.DataFrame(historico_dados)
+    nome_arquivo = time.strftime("telemetria_simples_%Y%m%d_%H%M%S.csv")
+    df.to_csv(nome_arquivo, index=False)
+    messagebox.showinfo("Sucesso", f"Dados salvos em:\n{nome_arquivo}")
+
+# --- 3. ATUALIZAÇÃO DA GUI (O Loop de Tempo Real) ---
+def atualizar_gui():
+    """Lê, armazena, e atualiza a interface a cada 500ms."""
+    if not coleta_ativa:
+        return 
+
+    # 1. Geração/Leitura de Dados
+    novos_dados = gerar_dados_simulados()
+
+    # 2. Armazenamento
+    historico_dados.append(novos_dados) 
+
+    # 3. Atualização dos Rótulos (Display)
+    lbl_vel.config(text=f"{novos_dados['velocidade']} km/h")
+    lbl_rpm.config(text=f"{novos_dados['rpm']} RPM")
+    lbl_tensao.config(text=f"{novos_dados['tensao']} V")
+    lbl_time.config(text=f"Última Atualização: {novos_dados['timestamp']}")
+    
+    # 4. Repetição (O "Loop de Telemetria")
+    root.after(500, atualizar_gui) # Chama a si mesma novamente em 500ms
+
+# --- 4. CONTROLE ---
+def iniciar_coleta():
+    global coleta_ativa, historico_dados
+    historico_dados = [] # Zera a sessão
+    coleta_ativa = True
+    atualizar_gui()
+    btn_iniciar.config(state=tk.DISABLED)
+    btn_parar.config(state=tk.NORMAL)
+
+def parar_coleta():
+    global coleta_ativa
+    coleta_ativa = False
+    salvar_dados_csv()
+    btn_iniciar.config(state=tk.NORMAL)
+    btn_parar.config(state=tk.DISABLED)
+
+# --- 5. INTERFACE GRÁFICA (SETUP) ---
+root = tk.Tk()
+root.title("Dashboard BAJA Simplificado")
+root.geometry("300x350")
+root.resizable(False, False) 
+
+fonte_titulo = ("Arial", 12)
+fonte_valor = ("Arial", 16, "bold")
+
+# Função auxiliar para criar linhas de dados (deixa o setup mais limpo)
+def criar_linha_dado(parent, label_text, cor):
+    frame = ttk.Frame(parent, padding="10"); frame.pack(fill='x')
+    ttk.Label(frame, text=label_text, font=fonte_titulo).pack(side='left', padx=10)
+    # Rótulo que será atualizado com o valor:
+    lbl_valor = ttk.Label(frame, text="--.-", font=fonte_valor, foreground=cor)
+    lbl_valor.pack(side='right', padx=10)
+    return lbl_valor # Retorna o objeto Label para que possamos atualizá-lo
+
+# Mapeia as Labels para variáveis globais (necessário para atualizar depois)
+lbl_vel = criar_linha_dado(root, "VELOCIDADE (km/h):", "blue")
+lbl_rpm = criar_linha_dado(root, "RPM MOTOR:", "green")
+lbl_tensao = criar_linha_dado(root, "TENSÃO BATERIA (V):", "orange")
+
+# --- Botões ---
+frame_botoes = ttk.Frame(root, padding="10"); frame_botoes.pack(pady=20)
+btn_iniciar = ttk.Button(frame_botoes, text="INICIAR SIMULAÇÃO", command=iniciar_coleta)
+btn_iniciar.pack(side='left', padx=10)
+btn_parar = ttk.Button(frame_botoes, text="PARAR E SALVAR", command=parar_coleta, state=tk.DISABLED)
+btn_parar.pack(side='left', padx=10)
+
+# --- Timestamp ---
+lbl_time = ttk.Label(root, text="Aguardando início...", font=fonte_titulo)
+lbl_time.pack(pady=10)
+
+root.mainloop()
