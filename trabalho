@@ -1,0 +1,164 @@
+mport tkinter as tk
+from tkinter import ttk, messagebox
+import time
+import random
+import pandas as pd
+
+# Variáveis globais
+historico_dados = []
+coleta_ativa = False
+
+# --- 1. GERAÇÃO AUTOMÁTICA DE DADOS (SIMULADOR) ---
+def gerar_dados_simulados():
+    """Gera um dicionário com valores aleatórios dentro das faixas típicas do Baja."""
+    # Estes dados simulam a "leitura" de um sensor
+    dados = {
+        "velocidade": round(random.uniform(10, 60), 2),  # 10 a 60 km/h
+        "rpm": random.randint(2500, 4500),             # 2500 a 4500 RPM
+        "tensao": round(random.uniform(11.5, 14.5), 2), # 11.5 a 14.5 Volts
+        "temperatura_motor": round(random.uniform(80, 110), 1), # 80 a 110 °C
+        "timestamp": time.strftime("%H:%M:%S")
+    }
+    return dados
+
+# --- 2. FUNÇÃO DE SALVAMENTO CSV ---
+def salvar_dados_csv():
+    """Converte o histórico de dados em um DataFrame e salva como CSV."""
+    if not historico_dados:
+        messagebox.showinfo("Aviso", "Nenhum dado foi coletado para salvar.")
+        return
+
+    # Cria o DataFrame do Pandas
+    df = pd.DataFrame(historico_dados)
+    
+    # Cria um nome de arquivo único
+    nome_arquivo = time.strftime("telemetria_baja_%Y%m%d_%H%M%S.csv")
+    
+    # Salva o arquivo
+    try:
+        df.to_csv(nome_arquivo, index=False)
+        messagebox.showinfo("Sucesso", f"Dados salvos com sucesso em:\n{nome_arquivo}")
+    except Exception as e:
+        messagebox.showerror("Erro de Salvamento", f"Ocorreu um erro ao salvar o arquivo: {e}")
+
+# --- 3. FUNÇÕES DE CONTROLE ---
+
+def iniciar_coleta():
+    """Inicia a coleta, zera o histórico e ativa a atualização da GUI."""
+    global coleta_ativa, historico_dados
+    if coleta_ativa:
+        return
+    
+    historico_dados = [] # Limpa a sessão anterior
+    coleta_ativa = True
+    print("Coleta de Dados Iniciada!")
+    atualizar_gui()
+    btn_iniciar.config(state=tk.DISABLED) # Desabilita o botão Iniciar
+    btn_parar.config(state=tk.NORMAL)
+
+
+def parar_coleta():
+    """Para a coleta de dados e chama a função de salvamento."""
+    global coleta_ativa
+    if not coleta_ativa:
+        return
+        
+    coleta_ativa = False
+    salvar_dados_csv()
+    print("Coleta de Dados Parada. Dados salvos.")
+    btn_iniciar.config(state=tk.NORMAL) # Reabilita o botão Iniciar
+    btn_parar.config(state=tk.DISABLED)
+
+# --- 4. FUNÇÃO DE ATUALIZAÇÃO DA GUI (O Loop de Tempo Real) ---
+def atualizar_gui():
+    """
+    Lê os dados simulados, atualiza a interface e armazena.
+    Chamada recursiva a cada 500ms usando root.after().
+    """
+    if not coleta_ativa:
+        return 
+
+    # 4.1. Lê/Gera os novos dados
+    novos_dados = gerar_dados_simulados()
+
+    # 4.2. Armazena no Histórico
+    historico_dados.append(novos_dados) 
+
+    # 4.3. Atualiza Rótulos na Interface
+    lbl_velocidade_valor.config(text=f"{novos_dados['velocidade']} km/h")
+    lbl_rpm_valor.config(text=f"{novos_dados['rpm']} RPM")
+    lbl_tensao_valor.config(text=f"{novos_dados['tensao']} V")
+    lbl_temp_valor.config(text=f"{novos_dados['temperatura_motor']} °C")
+    lbl_timestamp.config(text=f"Última Atualização: {novos_dados['timestamp']}")
+
+    # 4.4. Atualiza a Barra de Tensão (Exemplo visual)
+    tensao_normalizada = int(((novos_dados['tensao'] - 11.5) / 3.0) * 100)
+    barra_tensao['value'] = max(0, min(100, tensao_normalizada)) 
+    
+    # 4.5. Chamada recursiva para rodar novamente em 500 milissegundos
+    root.after(500, atualizar_gui) 
+    
+
+# --- 5. INTERFACE GRÁFICA PRINCIPAL (TKINTER) ---
+
+root = tk.Tk()
+root.title("Telemetria BAJA: Dashboard Simples")
+root.geometry("400x400")
+root.resizable(False, False) 
+
+fonte_titulo = ("Arial", 14, "bold")
+fonte_valor = ("Arial", 18, "bold")
+fonte_label = ("Arial", 12)
+
+# --- Indicadores ---
+
+# Velocidade
+frame_velocidade = ttk.Frame(root, padding="10"); frame_velocidade.pack(fill='x')
+lbl_velocidade_label = ttk.Label(frame_velocidade, text="VELOCIDADE:", font=fonte_titulo)
+lbl_velocidade_label.pack(side='left', padx=10, pady=5)
+lbl_velocidade_valor = ttk.Label(frame_velocidade, text="--.-- km/h", font=fonte_valor, foreground="blue")
+lbl_velocidade_valor.pack(side='right', padx=10, pady=5)
+
+# RPM
+frame_rpm = ttk.Frame(root, padding="10"); frame_rpm.pack(fill='x')
+lbl_rpm_label = ttk.Label(frame_rpm, text="RPM MOTOR:", font=fonte_titulo)
+lbl_rpm_label.pack(side='left', padx=10, pady=5)
+lbl_rpm_valor = ttk.Label(frame_rpm, text="---- RPM", font=fonte_valor, foreground="green")
+lbl_rpm_valor.pack(side='right', padx=10, pady=5)
+
+# Tensão
+frame_tensao = ttk.Frame(root, padding="10"); frame_tensao.pack(fill='x')
+lbl_tensao_label = ttk.Label(frame_tensao, text="TENSÃO BATERIA:", font=fonte_titulo)
+lbl_tensao_label.pack(side='left', padx=10, pady=5)
+lbl_tensao_valor = ttk.Label(frame_tensao, text="--.-- V", font=fonte_valor, foreground="orange")
+lbl_tensao_valor.pack(side='right', padx=10, pady=5)
+
+# Temperatura
+frame_temp = ttk.Frame(root, padding="10"); frame_temp.pack(fill='x')
+lbl_temp_label = ttk.Label(frame_temp, text="TEMP. MOTOR:", font=fonte_titulo)
+lbl_temp_label.pack(side='left', padx=10, pady=5)
+lbl_temp_valor = ttk.Label(frame_temp, text="--.- °C", font=fonte_valor, foreground="red")
+lbl_temp_valor.pack(side='right', padx=10, pady=5)
+
+# Barra de progresso para a Tensão (visualização simples)
+barra_tensao = ttk.Progressbar(root, orient='horizontal', length=300, mode='determinate')
+barra_tensao.pack(pady=5)
+ttk.Label(root, text="Tensão (11.5V min - 14.5V max)", font=("Arial", 9)).pack()
+
+
+# --- Botões de Controle ---
+frame_botoes = ttk.Frame(root, padding="10"); frame_botoes.pack(pady=15)
+
+btn_iniciar = ttk.Button(frame_botoes, text="INICIAR SIMULAÇÃO", command=iniciar_coleta)
+btn_iniciar.pack(side='left', padx=15)
+
+btn_parar = ttk.Button(frame_botoes, text="PARAR E SALVAR DADOS", command=parar_coleta, state=tk.DISABLED)
+btn_parar.pack(side='left', padx=15)
+
+# --- Timestamp ---
+lbl_timestamp = ttk.Label(root, text="Aguardando início...", font=fonte_label)
+lbl_timestamp.pack(pady=5)
+
+# Inicia o loop principal da interface
+root.mainloop()
+
