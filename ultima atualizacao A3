@@ -1,0 +1,304 @@
+import tkinter as tk
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import random
+import time
+from collections import deque
+import numpy as np
+
+# -------------------------- CONFIGURAÇÕES GLOBAIS --------------------------
+INTERVALO_MS = 1500  # Intervalo de atualização (1.5 segundo)
+MAX_PONTOS_HISTORICO = 60 # Histórico de dados para 60 pontos (1.5 min)
+LIMITE_VELOCIDADE_MAX = 60.0
+
+class CarTelemetry:
+    def __init__(self, master):
+        self.master = master
+        master.title("Painel de Telemetria Final (MAX 60 km/h) - Por: Gemini")
+        master.geometry("1150x750")
+        
+        # --- Variáveis de Estado e Controle ---
+        self.ativo = False
+        self.simulacao_id = None
+        
+        # --- Estruturas de Dados e Inicialização de Variáveis ---
+        self.tempo_inicial = time.time()
+        self.total_velocidades = 0
+        self.leituras_count = 0
+        self.distancia_total = 0.0
+        self.velocidade_anterior = 0.0
+        
+        # Deques (Histórico de dados)
+        self.dados_tempo = deque(maxlen=MAX_PONTOS_HISTORICO)
+        self.dados_velocidade = deque(maxlen=MAX_PONTOS_HISTORICO)
+        self.dados_rpm = deque(maxlen=MAX_PONTOS_HISTORICO)
+        self.dados_velocidade_media = deque(maxlen=MAX_PONTOS_HISTORICO) 
+        
+        # --- Configuração de Layout ---
+        self.frame_controles = tk.Frame(master, padx=10, pady=5, bd=2, relief=tk.RAISED)
+        self.frame_controles.pack(side=tk.TOP, fill=tk.X)
+        
+        self.frame_metricas = tk.Frame(master, padx=10, pady=10)
+        self.frame_metricas.pack(side=tk.TOP, fill=tk.X)
+        
+        self.frame_grafico = tk.Frame(master)
+        self.frame_grafico.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True)
+
+        # -------------------------- CRIAÇÃO DOS COMPONENTES --------------------------
+        self.criar_controles()
+        self.criar_displays_metricas()
+        self.criar_grafico()
+        
+    def criar_controles(self):
+        """Cria os botões INICIAR, PARAR e RESETAR."""
+        
+        self.btn_iniciar = tk.Button(
+            self.frame_controles, text="▶ INICIAR SIMULAÇÃO", command=self.iniciar_simulacao, 
+            font=("Arial", 12, "bold"), bg="green", fg="white"
+        )
+        self.btn_iniciar.pack(side=tk.LEFT, padx=10, pady=5)
+
+        self.btn_parar = tk.Button(
+            self.frame_controles, text="■ PARAR SIMULAÇÃO", command=self.parar_simulacao, 
+            font=("Arial", 12, "bold"), bg="red", fg="white", state=tk.DISABLED
+        )
+        self.btn_parar.pack(side=tk.LEFT, padx=10, pady=5)
+        
+        # NOVO BOTÃO: RESETAR
+        self.btn_reset = tk.Button(
+            self.frame_controles, text="🔄 RESETAR DADOS", command=self.reset_data, 
+            font=("Arial", 12, "bold"), bg="darkorange", fg="white"
+        )
+        self.btn_reset.pack(side=tk.LEFT, padx=30, pady=5)
+
+        self.status_label = tk.Label(self.frame_controles, text="Status: Parado", font=("Arial", 10))
+        self.status_label.pack(side=tk.LEFT, padx=20)
+
+    def criar_displays_metricas(self):
+        """Cria e organiza os labels para as métricas digitais."""
+        
+        metricas = {
+            "Velocidade (Km/h)": ("0.00", "blue"),
+            "RPM (Giro do Motor)": ("0", "red"),
+            "Velocidade Média": ("0.00", "green"),
+            "Tensão da Bateria (V)": ("0.00", "orange"),
+            "Carga do Motor (%)": ("0.0", "purple"),
+            "Distância Total (Km)": ("0.00", "darkgreen"),
+            "Aceleração Média (m/s²)": ("0.00", "brown"),
+            "Eficiência (Km/L)": ("0.0", "teal"),
+        }
+        
+        self.labels = {}
+        for i, (titulo, (valor_inicial, cor)) in enumerate(metricas.items()):
+            frame = tk.Frame(self.frame_metricas, bd=2, relief=tk.GROOVE)
+            frame.grid(row=i // 4, column=i % 4, padx=10, pady=5, sticky="nsew") 
+            tk.Label(frame, text=titulo, font=("Arial", 9, "bold")).pack(pady=(5, 0))
+            label_valor = tk.Label(
+                frame, text=valor_inicial, font=("Arial", 16, "bold"), fg=cor
+            )
+            label_valor.pack(pady=(0, 5))
+            self.labels[titulo] = label_valor
+        
+        for i in range(4):
+            self.frame_metricas.grid_columnconfigure(i, weight=1)
+
+    def criar_grafico(self):
+        """Cria e configura o gráfico Matplotlib com eixos duplos."""
+        
+        self.fig = Figure(figsize=(8, 4.5), dpi=100)
+        self.ax = self.fig.add_subplot(111)
+        self.ax.set_title("Histórico de Velocidade Média e RPM")
+        self.ax.set_xlabel("Tempo Relativo (s)")
+        self.ax.set_ylabel("Velocidade Média (km/h)", color='darkgreen')
+        self.ax.tick_params(axis='y', labelcolor='darkgreen')
+        
+        # Eixo Secundário para RPM
+        self.ax_rpm = self.ax.twinx()
+        self.ax_rpm.set_ylabel("RPM (Giro do Motor)", color='red')
+        self.ax_rpm.tick_params(axis='y', labelcolor='red')
+
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.frame_grafico)
+        self.canvas_widget = self.canvas.get_tk_widget()
+        self.canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+
+    # -------------------------- FUNÇÕES DE CONTROLE --------------------------
+    
+    def iniciar_simulacao(self):
+        """Inicia/Retoma o loop de telemetria."""
+        if not self.ativo:
+            self.ativo = True
+            self.btn_iniciar.config(state=tk.DISABLED)
+            self.btn_parar.config(state=tk.NORMAL)
+            self.status_label.config(text="Status: EM EXECUÇÃO", fg="green")
+            self.atualizar_telemetria()
+
+    def parar_simulacao(self):
+        """Para o loop de telemetria."""
+        self.ativo = False
+        self.btn_iniciar.config(state=tk.NORMAL)
+        self.btn_parar.config(state=tk.DISABLED)
+        self.status_label.config(text="Status: Parado", fg="red")
+        if self.simulacao_id:
+            self.master.after_cancel(self.simulacao_id)
+            
+    def reset_data(self):
+        """NOVO MÉTODO: Zera todas as variáveis acumuladas e limpa o histórico."""
+        
+        # Zera variáveis de cálculo
+        self.total_velocidades = 0
+        self.leituras_count = 0
+        self.distancia_total = 0.0
+        self.velocidade_anterior = 0.0
+        self.tempo_inicial = time.time() # Reinicia a contagem de tempo
+
+        # Limpa o histórico (Deques)
+        self.dados_tempo.clear()
+        self.dados_velocidade.clear()
+        self.dados_rpm.clear()
+        self.dados_velocidade_media.clear()
+        
+        # Resetar labels de displays digitais
+        self.labels["Velocidade (Km/h)"].config(text="0.00")
+        self.labels["RPM (Giro do Motor)"].config(text="0")
+        self.labels["Velocidade Média"].config(text="0.00")
+        self.labels["Distância Total (Km)"].config(text="0.000")
+        self.labels["Aceleração Média (m/s²)"].config(text="0.00")
+        self.labels["Eficiência (Km/L)"].config(text="0.0")
+        
+        # Redesenha o gráfico para aparecer vazio, mantendo os eixos
+        self.atualizar_plotagem(force_clear=True) 
+        
+        self.status_label.config(text="Status: RESET OK", fg="darkorange")
+
+    # -------------------------- SIMULAÇÃO E LÓGICA --------------------------
+
+    def simular_telemetria(self):
+        """Gera um conjunto realista de dados simulados, limitados a 60 km/h."""
+        
+        # 1. Velocidade (Km/h)
+        velocidade = random.uniform(0.0, LIMITE_VELOCIDADE_MAX) + random.uniform(-3, 3)
+        velocidade = max(0, min(LIMITE_VELOCIDADE_MAX, velocidade))
+        
+        # 2. RPM (Rotações por Minuto)
+        rpm_base = velocidade * 35 
+        rpm = int(rpm_base + random.randint(50, 250))
+        rpm = max(700, min(3500, rpm))
+        
+        # 3. Tensão da Bateria (V)
+        voltagem = random.uniform(13.5, 14.2) + random.uniform(-0.2, 0.2)
+        voltagem = round(max(12.0, min(14.8, voltagem)), 2)
+        
+        # 4. Carga do Motor (%)
+        carga_base = (velocidade / 60.0) * 50
+        carga_motor = round(carga_base + random.uniform(5, 15), 1)
+        carga_motor = max(5.0, min(80.0, carga_motor))
+        
+        # 5. Eficiência (Km/L)
+        eficiencia = 25.0 - (carga_motor * 0.2) + random.uniform(-1, 1)
+        eficiencia = round(max(5.0, eficiencia), 1)
+        
+        return {
+            "velocidade": round(velocidade, 2),
+            "rpm": rpm,
+            "tensao": voltagem,
+            "carga_motor": carga_motor,
+            "eficiencia": eficiencia
+        }
+    
+    def atualizar_telemetria(self):
+        """Função principal chamada no loop de tempo."""
+        
+        if not self.ativo:
+            return
+
+        # ... (Cálculos de Distância, Aceleração e Média) ...
+        novos_dados = self.simular_telemetria()
+        tempo_atual = time.time() - self.tempo_inicial
+        
+        # Distância (Km)
+        tempo_delta_horas = INTERVALO_MS / 3600000.0
+        distancia_passada = novos_dados["velocidade"] * tempo_delta_horas
+        self.distancia_total += distancia_passada
+        
+        # Aceleração (m/s²)
+        delta_v_ms = (novos_dados["velocidade"] - self.velocidade_anterior) * (1000.0 / 3600.0)
+        delta_t = INTERVALO_MS / 1000.0
+        aceleracao_atual = delta_v_ms / delta_t
+        self.velocidade_anterior = novos_dados["velocidade"]
+        
+        # Velocidade Média
+        self.total_velocidades += novos_dados["velocidade"]
+        self.leituras_count += 1
+        velocidade_media = self.total_velocidades / self.leituras_count
+        
+        # 4. Atualizar Histórico
+        self.dados_tempo.append(tempo_atual)
+        self.dados_velocidade.append(novos_dados["velocidade"])
+        self.dados_rpm.append(novos_dados["rpm"])
+        self.dados_velocidade_media.append(velocidade_media)
+        
+        # 5. Atualizar Displays Digitais
+        self.labels["Velocidade (Km/h)"].config(text=f"{novos_dados['velocidade']:.2f}")
+        self.labels["RPM (Giro do Motor)"].config(text=f"{novos_dados['rpm']:,}")
+        self.labels["Tensão da Bateria (V)"].config(text=f"{novos_dados['tensao']:.2f}")
+        self.labels["Carga do Motor (%)"].config(text=f"{novos_dados['carga_motor']:.1f}%")
+        self.labels["Velocidade Média"].config(text=f"{velocidade_media:.2f}")
+        self.labels["Distância Total (Km)"].config(text=f"{self.distancia_total:.3f}")
+        self.labels["Aceleração Média (m/s²)"].config(text=f"{aceleracao_atual:.2f}")
+        self.labels["Eficiência (Km/L)"].config(text=f"{novos_dados['eficiencia']:.1f}")
+        
+        # 6. Atualizar Gráfico
+        self.atualizar_plotagem()
+        
+        # 7. Agendar a próxima atualização
+        self.simulacao_id = self.master.after(INTERVALO_MS, self.atualizar_telemetria)
+
+    def atualizar_plotagem(self, force_clear=False):
+        """Limpa o gráfico e plota o histórico de VELOCIDADE MÉDIA e RPM."""
+        
+        self.ax.clear()
+        self.ax_rpm.clear()
+        
+        # Reconfigura os títulos e cores dos eixos
+        self.criar_grafico_eixos()
+        
+        if not self.dados_tempo or force_clear:
+            self.canvas.draw()
+            return
+        
+        # --- Eixo Primário (Velocidade Média) ---
+        self.ax.plot(self.dados_tempo, self.dados_velocidade_media, color='darkgreen', 
+                     label="Velocidade Média Acumulada", linewidth=2.5)
+        
+        # --- Eixo Secundário (RPM) ---
+        self.ax_rpm.plot(self.dados_tempo, self.dados_rpm, color='red', 
+                         linestyle=':', label="RPM (Giro do Motor)")
+        
+        # --- Limites e Grid ---
+        self.ax.set_xlim(self.dados_tempo[0], self.dados_tempo[-1])
+        self.ax.set_ylim(0, 65)
+        self.ax_rpm.set_ylim(0, 4000)
+        self.ax.grid(True, linestyle=':', alpha=0.7)
+        
+        # Combinar as legendas de ambos os eixos
+        lines, labels = self.ax.get_legend_handles_labels()
+        lines2, labels2 = self.ax_rpm.get_legend_handles_labels()
+        self.ax.legend(lines + lines2, labels + labels2, loc='upper left', fontsize='small')
+
+        self.fig.tight_layout()
+        self.canvas.draw()
+        
+    def criar_grafico_eixos(self):
+        """Função auxiliar para reconfigurar títulos e cores dos eixos (útil após clear())."""
+        self.ax.set_title("Histórico de Velocidade Média e RPM")
+        self.ax.set_xlabel("Tempo Relativo (s)")
+        self.ax.set_ylabel("Velocidade Média (km/h)", color='darkgreen')
+        self.ax.tick_params(axis='y', labelcolor='darkgreen')
+        self.ax_rpm.set_ylabel("RPM (Giro do Motor)", color='red')
+        self.ax_rpm.tick_params(axis='y', labelcolor='red')
+
+
+if __name__ == '__main__':
+    root = tk.Tk()
+    app = CarTelemetry(root)
+    root.mainloop()
